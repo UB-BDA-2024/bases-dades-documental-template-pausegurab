@@ -44,10 +44,10 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
     
     # Creem les claus compostes per cada un dels atributs
     temp = "sensor" + str(id) + ":temperatura"
-    hum = "sensor" + str(id) + " :humidity"
-    bat = "sensor" + str(id) + " :battery_level"
+    hum = "sensor" + str(id) + ":humidity"
+    bat = "sensor" + str(id) + ":battery_level"
     seen = "sensor" + str(id) + ":last_seen"
-    vel = "sensor" +str(id) +":velocity"
+    vel = "sensor" + str(id) + ":velocity"
 
     # Fem els post de cada un dels atributs amb la seva clau i el seu valor
    
@@ -73,15 +73,15 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
     
     last_seen = redis.get(seen)
     battery_level = redis.get(bat)
-    temperature = 0.0
-    humidity = 0.0
-    velocity = 0.0
+    temperature = None
+    humidity = None
+    velocity = None
     if data.temperature is not None:
-        redis.get(temp)
+        temperature = redis.get(temp)
     if data.humidity is not None:
-        redis.get(hum)
+        humidity = redis.get(hum)
     if data.velocity is not None:
-        redis.get(vel)
+        velocity = redis.get(vel)
     
 
     return schemas.Sensor(
@@ -109,7 +109,7 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient) -> schemas.Sensor:
     hum = "sensor" + str(id) + ":humidity"
     bat = "sensor" + str(id) + ":battery_level"
     seen = "sensor" + str(id) + ":last_seen"
-    vel = "sensor" + str(id) +":velocity"
+    vel = "sensor" + str(id) + ":velocity"
 
     # Fem el return amb les dades corresponents del postgres i el redis
     return schemas.Sensor(
