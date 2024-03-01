@@ -80,11 +80,11 @@ def delete_sensor(sensor_id: int, db: Session = Depends(get_db), mongodb_client:
 
 # 🙋🏽‍♀️ Add here the route to update a sensor
 @router.post("/{sensor_id}/data")
-def record_data(sensor_id: int, data: schemas.SensorData,db: Session = Depends(get_db) ,redis_client: RedisClient = Depends(get_redis_client)):
+def record_data(sensor_id: int, data: schemas.SensorData,db: Session = Depends(get_db) ,redis_client: RedisClient = Depends(get_redis_client), mongo_db: MongoDBClient = Depends(get_mongodb_client)):
     db_sensor = repository.get_sensor(db, sensor_id) 
     if db_sensor is None:
         raise HTTPException(status_code=404, detail="Sensor not found")
-    return repository.record_data(sensor_id=sensor_id, db=db, redis=redis_client, data=data)
+    return repository.record_data(sensor_id=sensor_id, db=db, redis=redis_client, data=data, mongo_db = mongo_db)
 
 
 # 🙋🏽‍♀️ Add here the route to get data from a sensor

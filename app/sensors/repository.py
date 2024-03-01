@@ -24,6 +24,7 @@ def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db = MongoDBC
     return db_sensor
 
 def add_collection(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
+    database = mongo_db.getDatabase("data")
     info = mongo_db.getCollection("sensors")
     coll = {
         "name": sensor.name,
@@ -39,42 +40,63 @@ def add_collection(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
     info.insert_one(coll)
     
 
-def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.SensorData) -> schemas.Sensor:
-    # ldata = last_data.SensorData(temperature=data.temperature, humidity=data.humidity, battery_level=data.battery_level, last_seen=data.last_seen)
+def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.SensorData, mongo_db: MongoDBClient) -> schemas.Sensor:
     
     # Creem les claus compostes per cada un dels atributs
     temp = "sensor" + str(id) + ":temperatura"
-    hum = "sensor" + str(id) + ":humidity"
-    bat = "sensor" + str(id) + ":battery_level"
+    hum = "sensor" + str(id) + " :humidity"
+    bat = "sensor" + str(id) + " :battery_level"
     seen = "sensor" + str(id) + ":last_seen"
     vel = "sensor" +str(id) +":velocity"
 
     # Fem els post de cada un dels atributs amb la seva clau i el seu valor
-    redis.set(temp, data.temperature)
-    redis.set(hum, data.humidity)
+   
     redis.set(bat, data.battery_level)
     redis.set(seen, data.last_seen)
-    redis.set(vel, data.velocity)
+    if data.velocity is not None:
+        redis.set(vel, data.velocity)
+    if data.temperature is not None:      
+        redis.set(temp, data.temperature)
+    if data.humidity is not None:
+        redis.set(hum, data.humidity)
 
     
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
 
+    sensor_name = db_sensor.name
 
+    mdb = mongo_db.getDatabase("data")
+    col = mongo_db.getCollection("sensors")
+
+    documental_sensor = col.find_one({"name": sensor_name})
+
+    
+    last_seen = redis.get(seen)
+    battery_level = redis.get(bat)
+    temperature = 0.0
+    humidity = 0.0
+    velocity = 0.0
+    if data.temperature is not None:
+        redis.get(temp)
+    if data.humidity is not None:
+        redis.get(hum)
+    if data.velocity is not None:
+        redis.get(vel)
     
 
     return schemas.Sensor(
         id=db_sensor.id,
         name=db_sensor.name,
-        latitude=db_sensor.latitude,
-        longitude=db_sensor.longitude,
+        latitude=documental_sensor["latitude"],
+        longitude=documental_sensor["longitude"],
         joined_at=str(db_sensor.joined_at),
-        last_seen=data.last_seen,
-        type=var,
-        mac_adress=var,
-        battery_level=data.battery_level,
-        temperature=data.temperature,
-        humidity=data.humidity,
-        velocity=data.velocity
+        last_seen=last_seen,
+        type=documental_sensor["type"],
+        mac_address=documental_sensor["mac_address"],
+        battery_level=battery_level,
+        temperature=temperature,
+        humidity=humidity,
+        velocity=velocity
         
     )
 
