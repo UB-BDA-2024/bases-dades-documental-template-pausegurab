@@ -23,7 +23,7 @@ def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db: MongoDBCl
     add_document(mongo_db=mongo_db, sensor = sensor)
     return db_sensor
 
-def get_sensors_near(db: Session, mongodb: MongoDBClient,latitude: float, longitude: float, radius: float):
+def get_sensors_near(db: Session, mongodb: MongoDBClient, redis: RedisClient, latitude: float, longitude: float, radius: float):
     query = {
     'location': {
         '$near': {
@@ -43,9 +43,12 @@ def get_sensors_near(db: Session, mongodb: MongoDBClient,latitude: float, longit
     sensors_list = []
 
     for sensors in sensors_near:
-        sensor_name = sensors["name"]
-        db_sensor = get_sensor_by_name(sensor_name)
-        sensors_list.append(db_sensor)
+        sensor_id_value = sensors["name"]
+        sensor_name = get_sensor_by_name(db, sensor_id_value)
+        sensor_id = sensor_name.id
+        sensor_schema = get_data(db=db, sensor_id=sensor_id, mongo_db=mongodb, redis=redis)
+        sensors_list.append(sensor_schema)
+        
 
     return sensors_list
 
