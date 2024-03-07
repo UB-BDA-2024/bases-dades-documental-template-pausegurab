@@ -20,17 +20,53 @@ def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db: MongoDBCl
     db.add(db_sensor)
     db.commit()
     db.refresh(db_sensor)
-    add_collection(mongo_db=mongo_db, sensor = sensor)
+    add_document(mongo_db=mongo_db, sensor = sensor)
     return db_sensor
 
+def get_sensors_near(db: Session, mongodb: MongoDBClient,latitude: float, longitude: float, radius: float):
+    query = {
+    'location': {
+        '$near': {
+            '$geometry': {
+                'type': 'Point',
+                'coordinates': [longitude, latitude]
+            },
+            '$maxDistance': radius 
+        }
+    }
+}
+    
+    database = mongodb.getDatabase("data")
+    col = mongodb.getCollection("sensors")
 
-def add_collection(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
+    sensors_near = col.find(query)
+    sensors_list = []
+
+    for sensors in sensors_near:
+        sensor_name = sensors["name"]
+        db_sensor = get_sensor_by_name(sensor_name)
+        sensors_list.append(db_sensor)
+
+    return sensors_list
+
+
+
+def add_document(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
     database = mongo_db.getDatabase("data")
     info = mongo_db.getCollection("sensors")
+    
+
+    if "location_2dsphere" not in info.index_information():
+        info.create_index([("location", "2dsphere")])
+    
+
+
     coll = {
         "name": sensor.name,
-        "longitude": sensor.longitude,
-        "latitude": sensor.latitude,
+        "location" :{
+                'type': 'Point',
+                'coordinates': [sensor.longitude, sensor.latitude]
+        }, 
         "type": sensor.type,
         "mac_address": sensor.mac_address,
         "manufacturer": sensor.manufacturer,
@@ -38,6 +74,7 @@ def add_collection(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
         "serie_number" : sensor.serie_number,
         "firmware_version" : sensor.firmware_version
     }
+
     info.insert_one(coll)
     
 
@@ -69,6 +106,7 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
     mdb = mongo_db.getDatabase("data")
     col = mongo_db.getCollection("sensors")
 
+
     documental_sensor = col.find_one({"name": sensor_name})
 
     
@@ -83,13 +121,13 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
         humidity = redis.get(hum)
     if data.velocity is not None:
         velocity = redis.get(vel)
-    
+
 
     return schemas.Sensor(
         id=db_sensor.id,
         name=db_sensor.name,
-        latitude=documental_sensor["latitude"],
-        longitude=documental_sensor["longitude"],
+        latitude=documental_sensor["location"]["coordinates"][1],
+        longitude=documental_sensor["location"]["coordinates"][0],
         joined_at=str(db_sensor.joined_at),
         last_seen=last_seen,
         type=documental_sensor["type"],
@@ -131,8 +169,8 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBC
     return schemas.Sensor(
         id=db_sensor.id,
         name=db_sensor.name,
-        latitude=documental_sensor["latitude"],
-        longitude=documental_sensor["longitude"],
+        latitude=documental_sensor["location"]["coordinates"][1],
+        longitude=documental_sensor["location"]["coordinates"][0],
         joined_at=str(db_sensor.joined_at),
         last_seen=last_seen,
         type=documental_sensor["type"],
@@ -144,10 +182,26 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBC
         
     )
 
-def delete_sensor(db: Session, sensor_id: int):
+def delete_sensor(db: Session, sensor_id: int, mongo_db : MongoDBClient, redis: RedisClient):
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
-    if db_sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+    sensor_name = db_sensor.name
+    database = mongo_db.getDatabase("data")
+    col = mongo_db.getCollection("sensors")
+
+    col.delete_one({"name": sensor_name})
+
+    temp = "sensor" + str(id) + ":temperatura"
+    hum = "sensor" + str(id) + ":humidity"
+    bat = "sensor" + str(id) + ":battery_level"
+    seen = "sensor" + str(id) + ":last_seen"
+    vel = "sensor" + str(id) + ":velocity"
+
+    redis.delete(temp)
+    redis.delete(hum)
+    redis.delete(bat)
+    redis.delete(seen)
+    redis.delete(vel)
+
+
     db.delete(db_sensor)
     db.commit()
-    return db_sensor
