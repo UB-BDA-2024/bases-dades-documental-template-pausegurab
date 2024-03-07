@@ -24,20 +24,10 @@ def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db: MongoDBCl
     return db_sensor
 
 def get_sensors_near(db: Session, mongodb: MongoDBClient, redis: RedisClient, latitude: float, longitude: float, radius: float):
-    query = {
-    'location': {
-        '$near': {
-            '$geometry': {
-                'type': 'Point',
-                'coordinates': [longitude, latitude]
-            },
-            '$maxDistance': radius 
-        }
-    }
-}
     
-    database = mongodb.getDatabase("data")
-    col = mongodb.getCollection("sensors")
+    query = create_query(latitude, longitude, radius)
+
+    col = connect_collection(mongodb=mongodb)
 
     sensors_near = col.find(query)
     sensors_list = []
@@ -52,11 +42,30 @@ def get_sensors_near(db: Session, mongodb: MongoDBClient, redis: RedisClient, la
 
     return sensors_list
 
+def connect_collection(mongodb: MongoDBClient):
+    database = mongodb.getDatabase("data")
+    col = mongodb.getCollection("sensors")
+    return col
+
+def create_query(latitude, longitude, radius):
+    query = {
+    'location': {
+        '$near': {
+            '$geometry': {
+                'type': 'Point',
+                'coordinates': [longitude, latitude]
+            },
+            '$maxDistance': radius 
+            }
+        }
+    }
+    return query
+
 
 
 def add_document(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
-    database = mongo_db.getDatabase("data")
-    info = mongo_db.getCollection("sensors")
+    
+    info = connect_collection(mongodb=mongo_db)
     
 
     if "location_2dsphere" not in info.index_information():
@@ -106,8 +115,7 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
 
     sensor_name = db_sensor.name
 
-    mdb = mongo_db.getDatabase("data")
-    col = mongo_db.getCollection("sensors")
+    col = connect_collection(mongodb=mongo_db)
 
 
     documental_sensor = col.find_one({"name": sensor_name})
@@ -158,8 +166,7 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBC
     # Fem el return amb les dades corresponents del postgres i el redis
 
 
-    mdb = mongo_db.getDatabase("data")
-    col = mongo_db.getCollection("sensors")
+    col = connect_collection(mongodb=mongo_db)
     
     documental_sensor = col.find_one({"name": sensor_name})
 
@@ -188,8 +195,8 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBC
 def delete_sensor(db: Session, sensor_id: int, mongo_db : MongoDBClient, redis: RedisClient):
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
     sensor_name = db_sensor.name
-    database = mongo_db.getDatabase("data")
-    col = mongo_db.getCollection("sensors")
+
+    col = connect_collection(mongodb=mongo_db)
 
     col.delete_one({"name": sensor_name})
 
