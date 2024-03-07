@@ -1,3 +1,5 @@
+from app.mongodb_client import MongoDBClient
+from app.redis_client import RedisClient
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -13,25 +15,203 @@ def get_sensor_by_name(db: Session, name: str) -> Optional[models.Sensor]:
 def get_sensors(db: Session, skip: int = 0, limit: int = 100) -> List[models.Sensor]:
     return db.query(models.Sensor).offset(skip).limit(limit).all()
 
-def create_sensor(db: Session, sensor: schemas.SensorCreate) -> models.Sensor:
-    db_sensor = models.Sensor(name=sensor.name, latitude=sensor.latitude, longitude=sensor.longitude)
+def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db: MongoDBClient) -> models.Sensor:
+    db_sensor = models.Sensor(name=sensor.name)
     db.add(db_sensor)
     db.commit()
     db.refresh(db_sensor)
+    add_document(mongo_db=mongo_db, sensor = sensor)
     return db_sensor
 
-def record_data(redis: Session, sensor_id: int, data: schemas.SensorData) -> schemas.Sensor:
-    db_sensordata = data
-    return db_sensordata
+def get_sensors_near(db: Session, mongodb: MongoDBClient, redis: RedisClient, latitude: float, longitude: float, radius: float):
+    
+    query = create_query(latitude, longitude, radius)
 
-def get_data(redis: Session, sensor_id: int, data: schemas.SensorData) -> schemas.Sensor:
-    db_sensordata = data
-    return db_sensordata
+    col = connect_collection(mongodb=mongodb)
 
-def delete_sensor(db: Session, sensor_id: int):
+    sensors_near = col.find(query)
+    sensors_list = []
+
+    for sensors in sensors_near:
+        sensor_id_value = sensors["name"]
+        sensor_name = get_sensor_by_name(db, sensor_id_value)
+        sensor_id = sensor_name.id
+        sensor_schema = get_data(db=db, sensor_id=sensor_id, mongo_db=mongodb, redis=redis)
+        sensors_list.append(sensor_schema)
+        
+
+    return sensors_list
+
+def connect_collection(mongodb: MongoDBClient):
+    database = mongodb.getDatabase("data")
+    col = mongodb.getCollection("sensors")
+    return col
+
+def create_query(latitude, longitude, radius):
+    query = {
+    'location': {
+        '$near': {
+            '$geometry': {
+                'type': 'Point',
+                'coordinates': [longitude, latitude]
+            },
+            '$maxDistance': radius 
+            }
+        }
+    }
+    return query
+
+
+
+def add_document(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
+    
+    info = connect_collection(mongodb=mongo_db)
+    
+
+    if "location_2dsphere" not in info.index_information():
+        info.create_index([("location", "2dsphere")])
+    
+
+
+    coll = {
+        "name": sensor.name,
+        "location" :{
+                'type': 'Point',
+                'coordinates': [sensor.longitude, sensor.latitude]
+        }, 
+        "type": sensor.type,
+        "mac_address": sensor.mac_address,
+        "manufacturer": sensor.manufacturer,
+        "model" : sensor.model,
+        "serie_number" : sensor.serie_number,
+        "firmware_version" : sensor.firmware_version
+    }
+
+    info.insert_one(coll)
+    
+
+def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.SensorData, mongo_db: MongoDBClient) -> schemas.Sensor:
+    
+    # Creem les claus compostes per cada un dels atributs
+    temp = "sensor" + str(id) + ":temperatura"
+    hum = "sensor" + str(id) + ":humidity"
+    bat = "sensor" + str(id) + ":battery_level"
+    seen = "sensor" + str(id) + ":last_seen"
+    vel = "sensor" + str(id) + ":velocity"
+
+    # Fem els post de cada un dels atributs amb la seva clau i el seu valor
+   
+    redis.set(bat, data.battery_level)
+    redis.set(seen, data.last_seen)
+    if data.velocity is not None:
+        redis.set(vel, data.velocity)
+    if data.temperature is not None:      
+        redis.set(temp, data.temperature)
+    if data.humidity is not None:
+        redis.set(hum, data.humidity)
+
+    
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
-    if db_sensor is None:
-        raise HTTPException(status_code=404, detail="Sensor not found")
+
+    sensor_name = db_sensor.name
+
+    col = connect_collection(mongodb=mongo_db)
+
+
+    documental_sensor = col.find_one({"name": sensor_name})
+
+    
+    last_seen = redis.get(seen)
+    battery_level = redis.get(bat)
+    temperature = None
+    humidity = None
+    velocity = None
+    if data.temperature is not None:
+        temperature = redis.get(temp)
+    if data.humidity is not None:
+        humidity = redis.get(hum)
+    if data.velocity is not None:
+        velocity = redis.get(vel)
+
+
+    return schemas.Sensor(
+        id=db_sensor.id,
+        name=db_sensor.name,
+        latitude=documental_sensor["location"]["coordinates"][1],
+        longitude=documental_sensor["location"]["coordinates"][0],
+        joined_at=str(db_sensor.joined_at),
+        last_seen=last_seen,
+        type=documental_sensor["type"],
+        mac_address=documental_sensor["mac_address"],
+        battery_level=battery_level,
+        temperature=temperature,
+        humidity=humidity,
+        velocity=velocity
+        
+    )
+
+def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBClient) -> schemas.Sensor:
+    # Trobem el sensor corresponent a la id
+    db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
+    
+    # Creem les claus compostes per cada un dels atributs
+    temp = "sensor" + str(id) + ":temperatura"
+    hum = "sensor" + str(id) + ":humidity"
+    bat = "sensor" + str(id) + ":battery_level"
+    seen = "sensor" + str(id) + ":last_seen"
+    vel = "sensor" + str(id) + ":velocity"
+
+    sensor_name = db_sensor.name
+
+    # Fem el return amb les dades corresponents del postgres i el redis
+
+
+    col = connect_collection(mongodb=mongo_db)
+    
+    documental_sensor = col.find_one({"name": sensor_name})
+
+    last_seen = redis.get(seen)
+    battery_level = redis.get(bat)
+    temperature = redis.get(temp)
+    humidity = redis.get(hum)
+    velocity = redis.get(vel)
+
+    return schemas.Sensor(
+        id=db_sensor.id,
+        name=db_sensor.name,
+        latitude=documental_sensor["location"]["coordinates"][1],
+        longitude=documental_sensor["location"]["coordinates"][0],
+        joined_at=str(db_sensor.joined_at),
+        last_seen=last_seen,
+        type=documental_sensor["type"],
+        mac_address=documental_sensor["mac_address"],
+        battery_level=battery_level,
+        temperature=temperature,
+        humidity=humidity,
+        velocity=velocity
+        
+    )
+
+def delete_sensor(db: Session, sensor_id: int, mongo_db : MongoDBClient, redis: RedisClient):
+    db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
+    sensor_name = db_sensor.name
+
+    col = connect_collection(mongodb=mongo_db)
+
+    col.delete_one({"name": sensor_name})
+
+    temp = "sensor" + str(id) + ":temperatura"
+    hum = "sensor" + str(id) + ":humidity"
+    bat = "sensor" + str(id) + ":battery_level"
+    seen = "sensor" + str(id) + ":last_seen"
+    vel = "sensor" + str(id) + ":velocity"
+
+    redis.delete(temp)
+    redis.delete(hum)
+    redis.delete(bat)
+    redis.delete(seen)
+    redis.delete(vel)
+
+
     db.delete(db_sensor)
     db.commit()
-    return db_sensor
