@@ -15,13 +15,14 @@ def get_sensor_by_name(db: Session, name: str) -> Optional[models.Sensor]:
 def get_sensors(db: Session, skip: int = 0, limit: int = 100) -> List[models.Sensor]:
     return db.query(models.Sensor).offset(skip).limit(limit).all()
 
-def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db = MongoDBClient) -> models.Sensor:
+def create_sensor(db: Session, sensor: schemas.SensorCreate, mongo_db: MongoDBClient) -> models.Sensor:
     db_sensor = models.Sensor(name=sensor.name)
     db.add(db_sensor)
     db.commit()
     db.refresh(db_sensor)
     add_collection(mongo_db=mongo_db, sensor = sensor)
     return db_sensor
+
 
 def add_collection(mongo_db: MongoDBClient, sensor: schemas.SensorCreate):
     database = mongo_db.getDatabase("data")
@@ -100,7 +101,7 @@ def record_data(sensor_id: int, db: Session, redis: RedisClient, data: schemas.S
         
     )
 
-def get_data(db: Session, sensor_id: int, redis: RedisClient) -> schemas.Sensor:
+def get_data(db: Session, sensor_id: int, redis: RedisClient, mongo_db: MongoDBClient) -> schemas.Sensor:
     # Trobem el sensor corresponent a la id
     db_sensor = db.query(models.Sensor).filter(models.Sensor.id == sensor_id).first()
     
@@ -111,20 +112,35 @@ def get_data(db: Session, sensor_id: int, redis: RedisClient) -> schemas.Sensor:
     seen = "sensor" + str(id) + ":last_seen"
     vel = "sensor" + str(id) + ":velocity"
 
+    sensor_name = db_sensor.name
+
     # Fem el return amb les dades corresponents del postgres i el redis
+
+
+    mdb = mongo_db.getDatabase("data")
+    col = mongo_db.getCollection("sensors")
+    
+    documental_sensor = col.find_one({"name": sensor_name})
+
+    last_seen = redis.get(seen)
+    battery_level = redis.get(bat)
+    temperature = redis.get(temp)
+    humidity = redis.get(hum)
+    velocity = redis.get(vel)
+
     return schemas.Sensor(
         id=db_sensor.id,
         name=db_sensor.name,
-        latitude=db_sensor.latitude,
-        longitude=db_sensor.longitude,
+        latitude=documental_sensor["latitude"],
+        longitude=documental_sensor["longitude"],
         joined_at=str(db_sensor.joined_at),
-        last_seen=redis.get(seen),
-        type=var,
-        mac_adress=var,
-        battery_level=redis.get(bat),
-        temperature=redis.get(temp),
-        humidity=redis.get(hum),
-        velocity=redis.get(vel)
+        last_seen=last_seen,
+        type=documental_sensor["type"],
+        mac_address=documental_sensor["mac_address"],
+        battery_level=battery_level,
+        temperature=temperature,
+        humidity=humidity,
+        velocity=velocity
         
     )
 
